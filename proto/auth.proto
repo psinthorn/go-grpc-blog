@@ -5,7 +5,7 @@ option go_package="authpb";
 
 message LoginRequest {
     string login = 1;
-    string passoword =2;
+    string password =2;
 }
 
 message AuthResponse {

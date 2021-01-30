@@ -8,5 +8,5 @@ import (
 )
 
 func main() {
-	global.DB.Collection("user").InsertOne(context.Background(), bson.M{"name": "Sinthorn"})
+	global.DB.Collection("user").InsertOne(context.Background(), bson.M{"name": "SP"})
 }
