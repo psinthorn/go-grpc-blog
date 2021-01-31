@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net"
+	"regexp"
 	"time"
 
 	authpb "github.com/psinthorn/go-grpc-blog/proto"
@@ -12,12 +13,95 @@ import (
 
 	"github.com/psinthorn/go-grpc-blog/global"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type authServer struct{}
 
-func (*authServer) Login(_ context.Context, req *authpb.LoginRequest) (*authpb.AuthResponse, error) {
+func (s *authServer) Signup(_ context.Context, req *authpb.SignupRequest) (*authpb.AuthResponse, error) {
+	// สรุปขั้นตอนการ Signup
+	// 1. รับค่าจาก input
+	// 2. ตรวจสอบการค่าที่ได้รับว่าตรงกับข้อกำหนดหรือไม่ (validation) หากไม่ตรงกับข้อกำหนดให้แจ้ง (returns error) user ให้ทราบ
+	// 2.1 ตรวจสอบว่ามี user หรือ email อยู่ในระบบปัจุบันแล้วหรือไม่หากมีแล้วให้ส่งข้อมูลหรือแจ้งให้ (returns &authpb.AuthResponse or  error) user ได้ทราบ (*สร้าง Function ในการตรวจ  current user และ current email )
+	// 2.2 หากไม่พบข้อผิดพลาดให้ดำเนินการขั้นต่อไป
+	// 3. การเชื่อมต่ฐานข้อมูลและนำข้อมูลเก็บลงฐานข้อมูล
+	// 4. ทำการ Login อัตโนมัติให้
+
+	// เริ่มปฎิบัติตามลำดับขั้นตอนด้านบน
+	// 1. รับค่าจาก input
+	userName, email, password := req.GetUserName(), req.GetEmail(), req.GetPassword()
+
+	// 2. ตรวจสอบการค่าที่ได้รับว่าตรงกับข้อกำหนดหรือไม่ (validation) หากไม่ตรงกับข้อกำหนดให้แจ้ง (returns error) user ให้ทราบ
+
+	// 2.1 ตรวจสอบความถูกต้องของ email
+	match, _ := regexp.MatchString("^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$", email)
+	if !match {
+		return &authpb.AuthResponse{}, errors.New("Email address is not valid")
+	}
+	if len(email) < 8 {
+		return &authpb.AuthResponse{}, errors.New("Email address must be at lease 8 charecters")
+	}
+
+	// 2.1 ตรวจสอบความถูกต้องของ userName
+	if len(userName) < 8 {
+		return &authpb.AuthResponse{}, errors.New("User name must be at lease 8 charecters")
+	}
+	if len(password) < 8 {
+		return &authpb.AuthResponse{}, errors.New("Password must be at lease 8 charecters")
+	}
+
+	// // Unique Username and Email Validation
+	// _, err := s.UniqueUserNameValidate(context.Background(), &authpb.UniqueUserNameValidateRequest{UserName: userName})
+	// if err != nil {
+	// 	return &authpb.AuthResponse{}, err
+	// }
+	// _, err = s.UniqueEmailValidate(context.Background(), &authpb.UniqueEmailValidateRequest{Email: userName})
+	// if err != nil {
+	// 	if err != nil {
+	// 		return &authpb.AuthResponse{}, err
+	// 	}
+	// }
+
+	// 3. การเชื่อมต่ฐานข้อมูลและนำข้อมูลเก็บลงฐานข้อมูล
+	var newUser global.User
+	ctx, cancle := global.NewDBContext(10 * time.Second)
+	defer cancle()
+
+	res, err := s.UniqueUserNameValidate(context.Background(), &authpb.UniqueUserNameValidateRequest{UserName: userName})
+	if err != nil {
+		log.Println("Somthings went wrong")
+		return &authpb.AuthResponse{}, err
+	}
+	if res.GetIsUnique() {
+		return &authpb.AuthResponse{}, errors.New("Username is exist")
+	}
+
+	res, err = s.UniqueEmailValidate(context.Background(), &authpb.UniqueEmailValidateRequest{Email: email})
+	if err != nil {
+		log.Println("Somthings went wrong")
+		return &authpb.AuthResponse{}, err
+	}
+	if res.GetIsUnique() {
+		return &authpb.AuthResponse{}, errors.New("Email is exist")
+	}
+
+	pw, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+
+	newUser = global.User{ID: primitive.NewObjectID(), UserName: userName, Email: email, Password: string(pw)}
+
+	ctx, cancle = global.NewDBContext(5 * time.Second)
+	defer cancle()
+	_, err = global.DB.Collection("user").InsertOne(ctx, newUser)
+	if err != nil {
+		log.Println("Error on insert new user:", err.Error())
+		return &authpb.AuthResponse{}, err
+	}
+
+	return &authpb.AuthResponse{Token: newUser.GetToken()}, nil
+}
+
+func (s *authServer) Login(_ context.Context, req *authpb.LoginRequest) (*authpb.AuthResponse, error) {
 
 	// สรุปขั้นตอนในการ login
 	// 1. รับค่า username และ password มาจาก user input form
@@ -30,7 +114,7 @@ func (*authServer) Login(_ context.Context, req *authpb.LoginRequest) (*authpb.A
 	// 6. หาก password ถูกต้องให้ทำหาร generate token และส่งกลับให้ user ต่อไป
 
 	// 1. รับค่า username และ password มาจาก user input form
-	login, password := req.GetLogin(), req.GetPassoword()
+	login, password := req.GetLogin(), req.GetPassword()
 
 	// 2. ทำการเชื่อมต่อฐานข้อมูล ขึ้นอยู่กับว่าเราเลือกใช้ฐานข้ออะไร เช่น mongodb, mySql, Posgres เป็นต้น
 	ctx, cancle := global.NewDBContext(5 * time.Second)
@@ -55,6 +139,27 @@ func (*authServer) Login(_ context.Context, req *authpb.LoginRequest) (*authpb.A
 	// 6. หาก password ถูกต้องให้ทำหาร generate token และส่งกลับให้ user ต่อไป
 	return &authpb.AuthResponse{Token: user.GetToken()}, nil
 
+}
+
+// Validate Unique UserName
+func (s *authServer) UniqueUserNameValidate(_ context.Context, req *authpb.UniqueUserNameValidateRequest) (*authpb.UniqueValidateResponse, error) {
+	var result global.User
+	userName := req.GetUserName()
+	ctx, cancle := global.NewDBContext(5 * time.Second)
+	defer cancle()
+	global.DB.Collection("user").FindOne(ctx, bson.M{"username": userName}).Decode(&result)
+	return &authpb.UniqueValidateResponse{IsUnique: result != global.NilUser}, nil
+}
+
+// Validate Unique Email addtess
+func (s *authServer) UniqueEmailValidate(_ context.Context, req *authpb.UniqueEmailValidateRequest) (*authpb.UniqueValidateResponse, error) {
+	var result global.User
+	email := req.GetEmail()
+	ctx, cancle := global.NewDBContext(5 * time.Second)
+	defer cancle()
+	global.DB.Collection("user").FindOne(ctx, bson.M{"email": email}).Decode(&result)
+
+	return &authpb.UniqueValidateResponse{IsUnique: result != global.NilUser}, nil
 }
 
 func main() {
