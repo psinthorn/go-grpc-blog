@@ -4,30 +4,30 @@ package auth;
 option go_package="authpb";
 
 message LoginRequest {
-    string Login = 1;
-    string Password =2;
+    string login = 1;
+    string password =2;
 }
 
 message AuthResponse {
-    string Token =1;
+    string token =1;
 }
 
 message SignupRequest {
-    string Email = 1;
-    string UserName = 2;
-    string Password = 3;
+    string email = 1;
+    string userName = 2;
+    string password = 3;
 }
 
 message UniqueUserNameValidateRequest {
-    string UserName = 1;
+    string username = 1;
 }
 
 message UniqueEmailValidateRequest {
-    string Email = 1;
+    string email = 1;
 }
 
 message UniqueValidateResponse {
-    bool IsUnique = 1;
+    bool isunique = 1;
 }
 
 service AuthService {
