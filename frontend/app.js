@@ -27,12 +27,14 @@ router
     .on("/login", function() {
         document.body.innerHTML = " "
         const loginDiv = document.createElement('div')
-        loginDiv.classList.add("login-div")
+        const loginForm = document.createElement('form')
+        // const loginLabel = doncument.createElement('label')
         const loginLabel = document.createElement('h1')
+
+        loginDiv.classList.add("login-div")
         loginLabel.innerText = "Login"
 
         loginDiv.appendChild(loginLabel)
-
         document.body.appendChild(loginDiv)
     })
     .resolve()
